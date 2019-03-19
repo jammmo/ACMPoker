@@ -164,6 +164,46 @@ def gameround(players, bigblind):
         player.currentbet = 0
         player.folded = False
         player.hand = None
+        
+def sortplayerbets(players, left, right): #sorts the players from least to greatest in chips
+    if right - left > 1:
+        mid = partition(players, left, right)
+        sortplayerbets(players, left, mid)
+        sortplayerbets(players, mid + 1, right)
+
+def partition(players, left, right):
+    i, j, pivot = left, right - 2, right - 1
+    while i < j:
+        while players[i].chips < players[pivot].chips:
+            i += 1
+        while i < j and players[j].chips >= players[pivot].chips:
+            j -= 1
+        if i < j:
+            players[i], players[j] = players[j], players[i]
+    if players[pivot].chips <= players[i].chips:
+        players[pivot], players[i] = players[i], players[pivot]
+    return i
+        
+
+def AllIn(players): #returns list of pot amounts and list of each player per pot
+    sidepots = []
+    playersperpot = []
+    sortplayerbets(players, 0, len(players))
+    while len(players) > 1:
+        if players[0].chips <= 0:
+            players.remove(players[0])
+        bet = players[0].chips
+        pot = 0
+        playing = []
+        for player in players:
+            pot += bet
+            player.chips -= bet
+            playing.append(player) #can change this to return playerID as well
+        sidepots.append(pot)
+        playersperpot.append(playing)
+        playing = []
+        players.remove(players[0])
+    return sidepots, playersperpot
 
 def startgame(numplayers, startingchips, bigblind):
     players = [Player(ascii_uppercase[num], None, startingchips) for num in range(numplayers)]
