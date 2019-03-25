@@ -1,4 +1,4 @@
-from pokercards import *
+from pokercards import handorder, Card, hands
 from random import shuffle
 from time import sleep
 from string import ascii_uppercase
@@ -138,15 +138,55 @@ def gameround(G):
         sidepots, playersperpot = allIn(G)
         for i in range(len(sidepots)):
             pot = sidepots[i]
-            winner = min(playersperpot[i], key=lambda x: handorder.index(x.hand))
-            print('*** Player', winner.playerID, 'wins a sidepot:', winner.hand + ';', 'Sidepot:', pot, playersperpot[i])
-            #winner takes sidepot
-            winner.chips += pot
+            winninghand = min([x.hand[0] for x in playersperpot[i]], key=lambda x: handorder.index(x))
+            possiblewinners = [x for x in playersperpot[i] if x.hand[0] == winninghand]
+            if len(possiblewinners) == 1:
+                winner = possiblewinners[0]
+                print('*** Player', winner.playerID, 'wins a sidepot:', winner.hand[0] + ';', 'Sidepot:', pot, playersperpot[i])
+                #winner takes sidepot
+                winner.chips += pot
+            else:
+                possiblewinners.sort(key=lambda x: x.hand[1], reverse=True)
+                winners = [x for x in possiblewinners if x.hand == possiblewinners[0].hand]
+                if len(winners) == 1:
+                    winner = winners[0]
+                    print('*** Player', winner.playerID, 'wins a sidepot:', winner.hand[0] + ';', 'Sidepot:', pot, playersperpot[i])
+                    #winner takes sidepot
+                    winner.chips += pot
+                else:
+                    #multiple winners in one sidepot - split the sidepot!
+                    amount = pot // len(winners)
+                    amounts = [amount]*len(winners)
+                    for x in range(pot % len(winners)):
+                        amounts[x] += 1
+                    for x in range(len(winners)):
+                        winners[x].chips += amounts[x]
+                        print("*** Player", winners[x].playerID, "wins part of sidepot:", winners[x].hand[0] + ';', 'Amount:', amounts[x], playersperpot[i])
     else:
-        winner = min(G.activeplayers, key=lambda x: handorder.index(x.hand))
-        print("*** Player", winner.playerID, "wins the round:", winner.hand)
-        #winner takes pot
-        winner.chips += G.pot
+        winninghand = min([x.hand[0] for x in G.activeplayers], key=lambda x: handorder.index(x))
+        possiblewinners = [x for x in G.activeplayers if x.hand[0] == winninghand]
+        if len(possiblewinners) == 1:
+            winner = possiblewinners[0]
+            print("*** Player", winner.playerID, "wins the round:", winner.hand[0])
+            #winner takes pot
+            winner.chips += G.pot
+        else:
+            possiblewinners.sort(key=lambda x: x.hand[1], reverse=True)
+            winners = [x for x in possiblewinners if x.hand == possiblewinners[0].hand]
+            if len(winners) == 1:
+                winner = winners[0]
+                print("*** Player", winner.playerID, "wins the round:", winner.hand[0])
+                #winner takes pot
+                winner.chips += G.pot
+            else:
+                #multiple winners - split pot
+                amount = G.pot // len(winners)
+                amounts = [amount]*len(winners)
+                for x in range(G.pot % len(winners)):
+                    amounts[x] += 1
+                for x in range(len(winners)):
+                    winners[x].chips += amounts[x]
+                    print("*** Player", winners[x].playerID, "wins part of pot:", winners[x].hand[0] + ';', 'Amount:', amounts[x])
     G.pot = 0
     print("Chips:", end='\t\t')
     print(*[x.chips for x in players], sep='\t')
@@ -157,7 +197,7 @@ def gameround(G):
         if player.chips == 0:
             G.eliminate(player)
     G.resetround()
-        
+
 
 def allIn(G): #returns list of pot amounts and list of each player per pot
     sidepots = []
@@ -187,7 +227,7 @@ def startgame(numplayers, startingchips, bigblind):
     while len(G.players) >= 2:
         gameround(G)
         G.blindsequence.insert(0, G.blindsequence.pop())
-        sleep(1)
+        #sleep(1)
     print('***', G.players[0], 'wins after', G.rounds, 'rounds!')
 
 
