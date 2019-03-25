@@ -1,217 +1,196 @@
+from pokercards import *
 from random import shuffle
 from time import sleep
 from string import ascii_uppercase
+from random import randint
 
-handorder = ['Royal Flush', 'Straight Flush', 'Four of a Kind', 'Full House', 'Flush', 'Straight', 'Three of a Kind', 'Two Pair', 'One Pair', 'High Card']
 ranks = list(range(2, 15))
 suits = ['D', 'S', 'C', 'H']
 
-pot = 0
-minimum = 0
+class Game:
+    def __init__(self, numplayers, startingchips, bigblind):
+        self.players = [Player(ascii_uppercase[num], None, startingchips, self) for num in range(numplayers)]
+        self.activeplayers = set(self.players)
+        self.blindsequence = self.players.copy()
+        self.bigblind = bigblind
+        self.smallblind = bigblind // 2
+        self.board = []
+        self.pot = 0
+        self.minimum = 0
+        self.rounds = 0
 
+    def resetround(self):
+        self.activeplayers = set(self.players)
+        self.minimum = 0
+        self.board = []
+        for player in self.players:
+            player.cards = []
+            player.currentbet = 0
+            player.hand = None
+            player.allin = False
+            player.folded = False
 
-class Card:
-    def __init__(self, rank, suit):
-        self.rank = rank
-        self.suit = suit
+    def eliminate(self, player):
+        self.players.remove(player)
+        self.blindsequence.remove(player)
+        self.activeplayers.discard(player)
 
-    def __lt__(self, other):
-        return self.rank < other.rank
-
-    def __eq__(self, other):
-        return self.rank == other.rank and self.suit == other.suit
-
-    def __repr__(self):
-        return str(self.rank) + '-' + self.suit
 
 class Player:
-    def __init__(self, playerID, cards, chips):
+    def __init__(self, playerID, cards, chips, game):
         self.cards = cards or []
         self.chips = chips
         self.currentbet = 0
-        self.folded = False
         self.hand = None
+        self.allin = False
+        self.folded = False
         self.playerID = playerID
+        self.game = game
     
     def receivecard(self, item):
         self.cards.append(item)
 
-    def bet(self, board):
-        return "Check"
+    def bet(self, game):
+        r = randint(1, 10)
+        if r == 1:
+            return "Fold"
+        elif r == 2:
+            return "Raise"
+        else:
+            return "Check"
     
     def updatebet(self, amount):
-        global pot
         added = amount - self.currentbet
-        self.currentbet = amount
-        self.chips -= added
-        pot += added
+        if added > self.chips:
+            self.allin = True
+            print('*** Player ' + self.playerID + "'s all in!")
+            self.currentbet += self.chips
+            self.game.pot += self.chips
+            self.chips = 0
+            self.game.activeplayers.remove(self)
+        else:
+            self.currentbet = amount
+            self.chips -= added
+            self.game.pot += added
+
+    def __repr__(self):
+        return 'Player ' + self.playerID
 
 
-def fiveHand(cards):
-    assert(len(cards) == 5)
-    suitset = set(x.suit for x in cards)
-    rankset = set(x.rank for x in cards)
-    if len(suitset) == 1 and rankset == {14, 13, 12, 11, 10}:
-        return 'Royal Flush'
-    elif len(suitset) == 1 and any(rankset == set(range(x, x+5)) for x in range(2, 10)):
-        return 'Straight Flush'
-    elif len(suitset) == 1 and rankset == {14, 2, 3, 4, 5}:   #case where ace is low
-        return 'Straight Flush'
-    elif len(rankset) == 2 and [x.rank for x in cards].count(cards[0].rank) in {1, 4}:
-        return 'Four of a Kind'
-    elif len(rankset) == 2 and [x.rank for x in cards].count(cards[0].rank) in {2, 3}:
-        return 'Full House'
-    elif len(suitset) == 1:
-        return 'Flush'
-    elif any(rankset == set(range(x, x+5)) for x in range(2, 10)):
-        return 'Straight'
-    elif rankset == {14, 2, 3, 4, 5}:   #case where ace is low
-        return 'Straight'
-    elif any([x.rank for x in cards].count(y) == 3 for y in rankset):
-        return 'Three of a Kind'
-    elif len(rankset) == 3:
-        return 'Two Pair'
-    elif len(rankset) == 4:
-        return 'One Pair'
-    else:
-        return 'High Card'
-
-
-def hands(cards):
-    assert(len(cards) == 7)
-    foundhands = set()
-    for x in cards:
-        for y in cards:
-            copied = cards.copy()
-            if x != y:
-                copied.remove(x)
-                copied.remove(y)
-                foundhands.add(fiveHand(copied))
-    return min(foundhands, key=lambda x: handorder.index(x))
-
-
-def betloop(players, bigblind, board):
-    global minimum
+def betloop(G):
     x = 0
-    while not all((player.currentbet == minimum) for player in players):
-        player = players[x]
-        if player.folded == False:
-            move = player.bet(board)
+    while not all((player.currentbet == G.minimum) for player in G.activeplayers):
+        player = G.blindsequence[x]
+        if player in G.activeplayers:
+            move = player.bet(G)
             if move == "Fold":
-                players[x] = None
+                player.folded = True
+                G.activeplayers.remove(player)
+                print('***', player, 'folds!')
             elif move == "Check":
-                player.updatebet(minimum)
+                player.updatebet(G.minimum)
             elif move == "Raise":
-                minimum += bigblind
-                player.updatebet(minimum)
-            if player.chips <= 0:
-                player.updatebet(player.currentbet + player.chips)
-                players.remove(player)
+                G.minimum += G.bigblind
+                player.updatebet(G.minimum)
         x += 1
-        if x == len(players):
+        if x == len(G.blindsequence):
             x = 0
-        print("bets:", [(player.currentbet if not player.folded else "N/A") for player in players])
+        print("Bets:", end='\t\t')
+        print(*[p.currentbet for p in G.players], sep='\t')
 
 
-def gameround(players, bigblind):
+def gameround(G):
     #dealing
-    global minimum
-    global pot
+    G.rounds += 1
+    print('Round', G.rounds)
+    players = G.players
     deck = [Card(r, s) for r in ranks for s in suits]
     shuffle(deck)
     for _ in range(2):
-        for player in players:
+        for player in G.players:
             player.receivecard(deck.pop())
-    board = []
-    print("Players:", [player.playerID for player in players])
+    print("Players:", end='\t')
+    print(*[player.playerID for player in G.players], sep='\t')
+    print("Chips:", end='\t\t')
+    print(*[x.chips for x in players], sep='\t')
     #blinds
-    smallblind = bigblind // 2
-    players[-2].updatebet(smallblind)
-    if players[-2].chips <= 0:
-        players[-2].updatebet(players[-2].currentbet + players[-2].chips)
-        players.remove(players[-2])
-    players[-1].updatebet(bigblind)
-    if players[-1].chips <= 0:
-        players[-1].updatebet(players[-1].currentbet + players[-1].chips)
-        players.remove(players[-1])
-    print("bets:", [p.currentbet for p in players])
-    minimum = bigblind
+    G.blindsequence[-2].updatebet(G.smallblind)
+    G.blindsequence[-1].updatebet(G.bigblind)
+    print("Blinds:", end='\t\t')
+    print(*[p.currentbet for p in players], sep='\t')
+    G.minimum = G.bigblind
     #preflop betting
-    betloop(players, bigblind, board)
+    betloop(G)
     #flop
     for _ in range(3):
-        board.append(deck.pop())
-    betloop(players, bigblind, board)
+        G.board.append(deck.pop())
+    betloop(G)
     #turn
-    board.append(deck.pop())
-    betloop(players, bigblind, board)
+    G.board.append(deck.pop())
+    betloop(G)
     #river
-    board.append(deck.pop())
-    betloop(players, bigblind, board)
+    G.board.append(deck.pop())
+    betloop(G)
     #comparing hands
     for player in players:
-        player.hand = hands(player.cards + board)
-    winner = min(players, key=lambda x: handorder.index(x.hand))
-    print("Player ", winner.playerID, ": ", winner.hand, sep='')
-    #winner takes pot
-    winner.chips += pot
-    pot = 0
-    minimum = 0
-    print("chips:", [x.chips for x in players])
+        player.hand = hands(player.cards + G.board)
+    if any(x.allin for x in G.players):
+        sidepots, playersperpot = allIn(G)
+        for i in range(len(sidepots)):
+            pot = sidepots[i]
+            winner = min(playersperpot[i], key=lambda x: handorder.index(x.hand))
+            print('*** Player', winner.playerID, 'wins a sidepot:', winner.hand + ';', 'Sidepot:', pot, playersperpot[i])
+            #winner takes sidepot
+            winner.chips += pot
+    else:
+        winner = min(G.activeplayers, key=lambda x: handorder.index(x.hand))
+        print("*** Player", winner.playerID, "wins the round:", winner.hand)
+        #winner takes pot
+        winner.chips += G.pot
+    G.pot = 0
+    print("Chips:", end='\t\t')
+    print(*[x.chips for x in players], sep='\t')
+    print('_'*80)
     print()
+    #reset game for next round
     for player in players:
-        player.cards = []
-        player.currentbet = 0
-        player.folded = False
-        player.hand = None
-        
-def sortplayerbets(players, left, right): #sorts the players from least to greatest in chips
-    if right - left > 1:
-        mid = partition(players, left, right)
-        sortplayerbets(players, left, mid)
-        sortplayerbets(players, mid + 1, right)
-
-def partition(players, left, right):
-    i, j, pivot = left, right - 2, right - 1
-    while i < j:
-        while players[i].chips < players[pivot].chips:
-            i += 1
-        while i < j and players[j].chips >= players[pivot].chips:
-            j -= 1
-        if i < j:
-            players[i], players[j] = players[j], players[i]
-    if players[pivot].chips <= players[i].chips:
-        players[pivot], players[i] = players[i], players[pivot]
-    return i
+        if player.chips == 0:
+            G.eliminate(player)
+    G.resetround()
         
 
-def AllIn(players): #returns list of pot amounts and list of each player per pot
+def allIn(G): #returns list of pot amounts and list of each player per pot
     sidepots = []
     playersperpot = []
-    sortplayerbets(players, 0, len(players))
-    while len(players) > 1:
-        if players[0].chips <= 0:
+    players = [[x, x.currentbet] for x in G.players if (x.folded is False)]
+    players.sort(key=lambda x: x[1])
+    while len(players) > 0:
+        if players[0][1] == 0:
             players.remove(players[0])
-        bet = players[0].chips
-        pot = 0
-        playing = []
-        for player in players:
-            pot += bet
-            player.chips -= bet
-            playing.append(player) #can change this to return playerID as well
-        sidepots.append(pot)
-        playersperpot.append(playing)
-        playing = []
-        players.remove(players[0])
+        else:
+            bet = players[0][1]
+            pot = 0
+            playing = []
+            for player in players:
+                pot += bet
+                player[1] -= bet
+                playing.append(player[0])
+            sidepots.append(pot)
+            playersperpot.append(playing)
+            playing = []
+            players.remove(players[0])
     return sidepots, playersperpot
 
+
 def startgame(numplayers, startingchips, bigblind):
-    players = [Player(ascii_uppercase[num], None, startingchips) for num in range(numplayers)]
-    while len(players) >= 2:
-        gameround(players, bigblind)
-        players.insert(0, players.pop())
-        sleep(0.5)
+    G = Game(numplayers, startingchips, bigblind)
+    while len(G.players) >= 2:
+        gameround(G)
+        G.blindsequence.insert(0, G.blindsequence.pop())
+        sleep(1)
+    print('***', G.players[0], 'wins after', G.rounds, 'rounds!')
+
 
 if __name__ == '__main__':
-    # 4 players, each starting with 500 chips. Big blind is 50
-    startgame(4, 500, 50)
+    # 4 players, each starting with 480 chips. Big blind is 50
+    startgame(4, 480, 50)
