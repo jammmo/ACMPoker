@@ -26,6 +26,7 @@ class Game:
         for player in self.players:
             player.cards = []
             player.currentbet = 0
+            player.bethistory = []
             player.hand = None
             player.allin = False
             player.folded = False
@@ -41,6 +42,7 @@ class Player:
         self.cards = cards or []
         self.chips = chips
         self.currentbet = 0
+        self.bethistory = []
         self.hand = None
         self.allin = False
         self.folded = False
@@ -79,7 +81,8 @@ class Player:
 
 def betloop(G):
     x = 0
-    while not all((player.currentbet == G.minimum) for player in G.activeplayers):
+    once = True
+    while len(G.activeplayers) >= 2 and (once or not all((player.currentbet == G.minimum) for player in G.activeplayers)):
         player = G.blindsequence[x]
         if player in G.activeplayers:
             move = player.bet(G)
@@ -95,11 +98,15 @@ def betloop(G):
         x += 1
         if x == len(G.blindsequence):
             x = 0
+            if once:
+                once = False
         print("Bets:", end='\t\t')
         print(*[p.currentbet for p in G.players], sep='\t')
+    for p in G.players:
+        p.bethistory.append(G.players[0].currentbet)
 
 
-def gameround(G):
+def gameround(G, reset=True):
     #dealing
     G.rounds += 1
     print('Round', G.rounds)
@@ -193,10 +200,11 @@ def gameround(G):
     print('_'*80)
     print()
     #reset game for next round
-    for player in players:
-        if player.chips == 0:
-            G.eliminate(player)
-    G.resetround()
+    if reset:
+        for player in players:
+            if player.chips == 0:
+                G.eliminate(player)
+        G.resetround()
 
 
 def allIn(G): #returns list of pot amounts and list of each player per pot
