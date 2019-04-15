@@ -1,8 +1,7 @@
 from pokercards import handorder, Card, hands
-from random import shuffle
+from random import shuffle, randint
 from time import sleep
 from string import ascii_uppercase
-from random import randint
 
 ranks = list(range(2, 15))
 suits = ['D', 'S', 'C', 'H']
@@ -15,6 +14,7 @@ class Game:
         self.bigblind = bigblind
         self.smallblind = bigblind // 2
         self.board = []
+        self.bettinground = None
         self.pot = 0
         self.minimum = 0
         self.rounds = 0
@@ -23,6 +23,7 @@ class Game:
         self.activeplayers = set(self.players)
         self.minimum = 0
         self.board = []
+        self.bettinground = None
         for player in self.players:
             player.cards = []
             player.currentbet = 0
@@ -30,6 +31,7 @@ class Game:
             player.hand = None
             player.allin = False
             player.folded = False
+            player.lastbet = 0
 
     def eliminate(self, player):
         self.players.remove(player)
@@ -43,6 +45,8 @@ class Player:
         self.chips = chips
         self.currentbet = 0
         self.bethistory = []
+        self.coefficients = None
+        self.lastbet = 0
         self.hand = None
         self.allin = False
         self.folded = False
@@ -52,14 +56,52 @@ class Player:
     def receivecard(self, item):
         self.cards.append(item)
 
-    def bet(self, game):
-        r = randint(1, 10)
-        if r == 1:
-            return "Fold"
-        elif r == 2:
-            return "Raise"
+    def bet(self, game, first):
+        if self.coefficients is not None:
+            c = {}
+            coefficientnames = ('initial', 'preflop_before', 'preflop_after', 'flop_card1', 'flop_card2', 'flop_card3', 'flop_before', 'flop_after',
+            'turn_card', 'turn_before', 'turn_after', 'river_card', 'river_before', 'river_after')
+            for i in range(len(coefficientnames)):
+                c[coefficientnames[i]] = self.coefficients[i]
+
+            if game.bettinground == "preflop" and first:
+                betamount = c['initial'] + (c['preflop_before'] * sum([game.players[x].lastbet for x in range(1, 4)]))
+
+            elif game.bettinground == "preflop":
+                betamount = c['preflop_after'] * sum([game.players[x].lastbet for x in range(1, 4)])
+
+            elif game.bettinground == "flop" and first:
+                betamount = (c['flop_card1'] * game.board[0].rank) + (c['flop_card2'] * game.board[1].rank) + (c['flop_card3'] * game.board[2].rank) + (c['flop_before'] * sum([game.players[x].lastbet for x in range(1, 4)]))
+
+            elif game.bettinground == "flop":
+                betamount = c['flop_after'] * sum([game.players[x].lastbet for x in range(1, 4)])
+
+            elif game.bettinground == "turn" and first:
+                betamount = (c['turn_card'] * game.board[3].rank) + (c['turn_before'] * sum([game.players[x].lastbet for x in range(1, 4)]))
+
+            elif game.bettinground == "turn":
+                betamount = c['turn_after'] * sum([game.players[x].lastbet for x in range(1, 4)])
+
+            elif game.bettinground == "river" and first:
+                betamount = (c['river_card'] * game.board[4].rank) + (c['river_before'] * sum([game.players[x].lastbet for x in range(1, 4)]))
+
+            elif game.bettinground == "river":
+                betamount = c['river_after'] * sum([game.players[x].lastbet for x in range(1, 4)])
+
+            if betamount < game.minimum:
+                return "Fold"
+            if betamount < game.minimum + game.bigblind:
+                return "Check"
+            else:
+                return "Raise"
         else:
-            return "Check"
+            r = randint(1, 10)
+            if r == 1:
+                return "Fold"
+            elif r == 2:
+                return "Raise"
+            else:
+                return "Check"
     
     def updatebet(self, amount):
         added = amount - self.currentbet
@@ -67,11 +109,13 @@ class Player:
             self.allin = True
             print('*** Player ' + self.playerID + "'s all in!")
             self.currentbet += self.chips
+            self.lastbet = self.chips
             self.game.pot += self.chips
             self.chips = 0
             self.game.activeplayers.remove(self)
         else:
             self.currentbet = amount
+            self.lastbet = added
             self.chips -= added
             self.game.pot += added
 
@@ -79,13 +123,14 @@ class Player:
         return 'Player ' + self.playerID
 
 
-def betloop(G):
+def betloop(G, bettinground):
+    G.bettinground = bettinground
     x = 0
     once = True
     while len(G.activeplayers) >= 2 and (once or not all((player.currentbet == G.minimum) for player in G.activeplayers)):
         player = G.blindsequence[x]
         if player in G.activeplayers:
-            move = player.bet(G)
+            move = player.bet(G, once)
             if move == "Fold":
                 player.folded = True
                 G.activeplayers.remove(player)
@@ -120,6 +165,8 @@ def gameround(G, reset=True):
     print(*[player.playerID for player in G.players], sep='\t')
     print("Chips:", end='\t\t')
     print(*[x.chips for x in players], sep='\t')
+    #machine learning!!
+    #G.players[0].coefficients = basic_14_output()
     #blinds
     G.blindsequence[-2].updatebet(G.smallblind)
     G.blindsequence[-1].updatebet(G.bigblind)
@@ -127,17 +174,17 @@ def gameround(G, reset=True):
     print(*[p.currentbet for p in players], sep='\t')
     G.minimum = G.bigblind
     #preflop betting
-    betloop(G)
+    betloop(G, "preflop")
     #flop
     for _ in range(3):
         G.board.append(deck.pop())
-    betloop(G)
+    betloop(G, "flop")
     #turn
     G.board.append(deck.pop())
-    betloop(G)
+    betloop(G, "turn")
     #river
     G.board.append(deck.pop())
-    betloop(G)
+    betloop(G, "river")
     #comparing hands
     for player in players:
         player.hand = hands(player.cards + G.board)
