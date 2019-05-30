@@ -8,7 +8,7 @@ suits = ['D', 'S', 'C', 'H']
 
 class Game:
     def __init__(self, numplayers, startingchips, bigblind):
-        self.players = [Player(ascii_uppercase[num], None, startingchips, self) for num in range(numplayers)]
+        self.players = [Player(ascii_uppercase[num], startingchips, self) for num in range(numplayers)]
         self.activeplayers = set(self.players)
         self.blindsequence = self.players.copy()
         self.bigblind = bigblind
@@ -21,17 +21,12 @@ class Game:
 
     def resetround(self):
         self.activeplayers = set(self.players)
+        self.pot = 0
         self.minimum = 0
         self.board = []
         self.bettinground = None
         for player in self.players:
-            player.cards = []
-            player.currentbet = 0
-            player.bethistory = []
-            player.hand = None
-            player.allin = False
-            player.folded = False
-            player.lastbet = 0
+            player.roundinit()
 
     def eliminate(self, player):
         self.players.remove(player)
@@ -40,9 +35,14 @@ class Game:
 
 
 class Player:
-    def __init__(self, playerID, cards, chips, game):
-        self.cards = cards or []
+    def __init__(self, playerID, chips, game):
         self.chips = chips
+        self.playerID = playerID
+        self.game = game
+        self.roundinit()
+
+    def roundinit(self):
+        self.cards = []
         self.currentbet = 0
         self.bethistory = []
         self.coefficients = None
@@ -50,8 +50,6 @@ class Player:
         self.hand = None
         self.allin = False
         self.folded = False
-        self.playerID = playerID
-        self.game = game
     
     def receivecard(self, item):
         self.cards.append(item)
@@ -65,35 +63,34 @@ class Player:
                 c[coefficientnames[i]] = self.coefficients[i]
 
             if game.bettinground == "preflop" and first:
-                betamount = c['initial'] + (c['preflop_before'] * sum([game.players[x].lastbet for x in range(1, 4)]))
+                betamount = c['initial'] + (c['preflop_before'] * (sum([game.players[x].lastbet for x in range(1, len(game.players))]) / (len(game.players) - 1)))
 
             elif game.bettinground == "preflop":
-                betamount = c['preflop_after'] * sum([game.players[x].lastbet for x in range(1, 4)])
+                betamount = c['preflop_after'] * (sum([game.players[x].lastbet for x in range(1, len(game.players))]) / (len(game.players) - 1))
 
             elif game.bettinground == "flop" and first:
-                betamount = (c['flop_card1'] * game.board[0].rank) + (c['flop_card2'] * game.board[1].rank) + (c['flop_card3'] * game.board[2].rank) + (c['flop_before'] * sum([game.players[x].lastbet for x in range(1, 4)]))
+                betamount = (c['flop_card1'] * game.board[0].rank) + (c['flop_card2'] * game.board[1].rank) + (c['flop_card3'] * game.board[2].rank) + (c['flop_before'] * (sum([game.players[x].lastbet for x in range(1, len(game.players))]) / (len(game.players) - 1)))
 
             elif game.bettinground == "flop":
-                betamount = c['flop_after'] * sum([game.players[x].lastbet for x in range(1, 4)])
+                betamount = c['flop_after'] * (sum([game.players[x].lastbet for x in range(1, len(game.players))]) / (len(game.players) - 1))
 
             elif game.bettinground == "turn" and first:
-                betamount = (c['turn_card'] * game.board[3].rank) + (c['turn_before'] * sum([game.players[x].lastbet for x in range(1, 4)]))
+                betamount = (c['turn_card'] * game.board[3].rank) + (c['turn_before'] * (sum([game.players[x].lastbet for x in range(1, len(game.players))]) / (len(game.players) - 1)))
 
             elif game.bettinground == "turn":
-                betamount = c['turn_after'] * sum([game.players[x].lastbet for x in range(1, 4)])
+                betamount = c['turn_after'] * (sum([game.players[x].lastbet for x in range(1, len(game.players))]) / (len(game.players) - 1))
 
             elif game.bettinground == "river" and first:
-                betamount = (c['river_card'] * game.board[4].rank) + (c['river_before'] * sum([game.players[x].lastbet for x in range(1, 4)]))
+                betamount = (c['river_card'] * game.board[4].rank) + (c['river_before'] * (sum([game.players[x].lastbet for x in range(1, len(game.players))]) / (len(game.players) - 1)))
 
             elif game.bettinground == "river":
-                betamount = c['river_after'] * sum([game.players[x].lastbet for x in range(1, 4)])
-
-            if betamount < game.minimum:
+                betamount = c['river_after'] * (sum([game.players[x].lastbet for x in range(1, len(game.players))]) / (len(game.players) - 1))
+            if betamount + self.currentbet < game.minimum:
                 return "Fold"
-            if betamount < game.minimum + game.bigblind:
+            if betamount + self.currentbet < game.minimum + game.bigblind:
                 return "Check"
             else:
-                return "Raise"
+                return (int(betamount)//game.bigblind)*game.bigblind
         else:
             r = randint(1, 10)
             if r == 1:
@@ -105,6 +102,7 @@ class Player:
     
     def updatebet(self, amount):
         added = amount - self.currentbet
+        assert(added >= 0)
         if added > self.chips:
             self.allin = True
             print('*** Player ' + self.playerID + "'s all in!")
@@ -123,6 +121,23 @@ class Player:
         return 'Player ' + self.playerID
 
 
+def printbets(G):
+    print("Bets:", end='\t\t')
+    print(*[p.currentbet for p in G.players], sep='\t')
+
+def printchips(G):
+    print("Chips:", end='\t\t')
+    print(*[p.chips for p in G.players], sep='\t')
+
+def printplayers(G):
+    print("Players:", end='\t')
+    print(*[p.playerID for p in G.players], sep='\t')
+
+def printblinds(G):
+    print("Blinds:", end='\t\t')
+    print(*[p.currentbet for p in G.players], sep='\t')
+
+
 def betloop(G, bettinground):
     G.bettinground = bettinground
     x = 0
@@ -138,15 +153,17 @@ def betloop(G, bettinground):
             elif move == "Check":
                 player.updatebet(G.minimum)
             elif move == "Raise":
-                G.minimum += G.bigblind
-                player.updatebet(G.minimum)
+                player.updatebet(G.minimum + G.bigblind)
+                G.minimum = max(G.minimum, player.currentbet)
+            elif type(move) is not str:
+                player.updatebet(player.currentbet + move)
+                G.minimum = max(G.minimum, player.currentbet)
         x += 1
         if x == len(G.blindsequence):
             x = 0
             if once:
                 once = False
-        print("Bets:", end='\t\t')
-        print(*[p.currentbet for p in G.players], sep='\t')
+        printbets(G)
     for p in G.players:
         p.bethistory.append(G.players[0].currentbet)
 
@@ -155,23 +172,21 @@ def gameround(G, reset=True):
     #dealing
     G.rounds += 1
     print('Round', G.rounds)
-    players = G.players
     deck = [Card(r, s) for r in ranks for s in suits]
     shuffle(deck)
     for _ in range(2):
         for player in G.players:
             player.receivecard(deck.pop())
-    print("Players:", end='\t')
-    print(*[player.playerID for player in G.players], sep='\t')
-    print("Chips:", end='\t\t')
-    print(*[x.chips for x in players], sep='\t')
+    printplayers(G)
+    printchips(G)
     #machine learning!!
     #G.players[0].coefficients = basic_14_output()
+    if G.players[0].playerID == 'A':
+        G.players[0].coefficients = (50,1,1,1,1,1,1,1,1,1,1,1,1,1)
     #blinds
     G.blindsequence[-2].updatebet(G.smallblind)
     G.blindsequence[-1].updatebet(G.bigblind)
-    print("Blinds:", end='\t\t')
-    print(*[p.currentbet for p in players], sep='\t')
+    printblinds(G)
     G.minimum = G.bigblind
     #preflop betting
     betloop(G, "preflop")
@@ -186,72 +201,62 @@ def gameround(G, reset=True):
     G.board.append(deck.pop())
     betloop(G, "river")
     #comparing hands
-    for player in players:
+    determinewinner(G)
+    printchips(G)
+    print('_'*80, end='\n\n')
+    #reset game for next round
+    if reset:
+        pcopy = G.players.copy()
+        for player in pcopy:
+            if player.chips == 0:
+                G.eliminate(player)
+        G.resetround()
+
+
+def determinewinner(G):
+    #comparing hands
+    for player in G.players:
         player.hand = hands(player.cards + G.board)
     if any(x.allin for x in G.players):
         sidepots, playersperpot = allIn(G)
-        for i in range(len(sidepots)):
-            pot = sidepots[i]
-            winninghand = min([x.hand[0] for x in playersperpot[i]], key=lambda x: handorder.index(x))
-            possiblewinners = [x for x in playersperpot[i] if x.hand[0] == winninghand]
-            if len(possiblewinners) == 1:
-                winner = possiblewinners[0]
-                print('*** Player', winner.playerID, 'wins a sidepot:', winner.hand[0] + ';', 'Sidepot:', pot, playersperpot[i])
-                #winner takes sidepot
-                winner.chips += pot
-            else:
-                possiblewinners.sort(key=lambda x: x.hand[1], reverse=True)
-                winners = [x for x in possiblewinners if x.hand == possiblewinners[0].hand]
-                if len(winners) == 1:
-                    winner = winners[0]
-                    print('*** Player', winner.playerID, 'wins a sidepot:', winner.hand[0] + ';', 'Sidepot:', pot, playersperpot[i])
-                    #winner takes sidepot
-                    winner.chips += pot
-                else:
-                    #multiple winners in one sidepot - split the sidepot!
-                    amount = pot // len(winners)
-                    amounts = [amount]*len(winners)
-                    for x in range(pot % len(winners)):
-                        amounts[x] += 1
-                    for x in range(len(winners)):
-                        winners[x].chips += amounts[x]
-                        print("*** Player", winners[x].playerID, "wins part of sidepot:", winners[x].hand[0] + ';', 'Amount:', amounts[x], playersperpot[i])
     else:
-        winninghand = min([x.hand[0] for x in G.activeplayers], key=lambda x: handorder.index(x))
-        possiblewinners = [x for x in G.activeplayers if x.hand[0] == winninghand]
+        sidepots = [G.pot]
+        playersperpot = [[p for p in G.players if (p.folded is False)]]
+    for i in range(len(sidepots)):
+        pot = sidepots[i]
+        winninghand = min([x.hand[0] for x in playersperpot[i]], key=lambda x: handorder.index(x))
+        possiblewinners = [x for x in playersperpot[i] if x.hand[0] == winninghand]
         if len(possiblewinners) == 1:
             winner = possiblewinners[0]
-            print("*** Player", winner.playerID, "wins the round:", winner.hand[0])
-            #winner takes pot
-            winner.chips += G.pot
+            if len(sidepots) == 1:
+                print("*** Player", winner.playerID, "wins the round:", winner.hand[0])
+            else:
+                print('*** Player', winner.playerID, 'wins a sidepot:', winner.hand[0] + ';', 'Sidepot:', pot, playersperpot[i])
+            #winner takes pot / sidepot
+            winner.chips += pot
         else:
             possiblewinners.sort(key=lambda x: x.hand[1], reverse=True)
             winners = [x for x in possiblewinners if x.hand == possiblewinners[0].hand]
             if len(winners) == 1:
                 winner = winners[0]
-                print("*** Player", winner.playerID, "wins the round:", winner.hand[0])
-                #winner takes pot
-                winner.chips += G.pot
+                if len(sidepots) == 1:
+                    print("*** Player", winner.playerID, "wins the round:", winner.hand[0])
+                else:
+                    print('*** Player', winner.playerID, 'wins a sidepot:', winner.hand[0] + ';', 'Sidepot:', pot, playersperpot[i])
+                #winner takes pot / sidepot
+                winner.chips += pot
             else:
-                #multiple winners - split pot
-                amount = G.pot // len(winners)
+                #multiple winners in one sidepot - split the sidepot!
+                amount = pot // len(winners)
                 amounts = [amount]*len(winners)
-                for x in range(G.pot % len(winners)):
+                for x in range(pot % len(winners)):
                     amounts[x] += 1
                 for x in range(len(winners)):
                     winners[x].chips += amounts[x]
-                    print("*** Player", winners[x].playerID, "wins part of pot:", winners[x].hand[0] + ';', 'Amount:', amounts[x])
-    G.pot = 0
-    print("Chips:", end='\t\t')
-    print(*[x.chips for x in players], sep='\t')
-    print('_'*80)
-    print()
-    #reset game for next round
-    if reset:
-        for player in players:
-            if player.chips == 0:
-                G.eliminate(player)
-        G.resetround()
+                    if len(sidepots) == 1:
+                        print("*** Player", winners[x].playerID, "wins part of pot:", winners[x].hand[0] + ';', 'Amount:', amounts[x])
+                    else:
+                        print("*** Player", winners[x].playerID, "wins part of sidepot:", winners[x].hand[0] + ';', 'Amount:', amounts[x], playersperpot[i])
 
 
 def allIn(G): #returns list of pot amounts and list of each player per pot
